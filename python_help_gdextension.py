@@ -395,10 +395,27 @@ class MainFrame(wx.Frame):
         bin_path = os.path.join(path, 'bin')
         if not os.path.exists(bin_path):
             os.mkdir(bin_path)
-        gdextesion_path = os.path.join(bin_path, '%s.gdextesion' % (self.get_ext_name()))
+        name = self.get_ext_name()
+        gdextesion_path = os.path.join(bin_path, '%s.gdextesion' % (name))
+        debug_release = ''
+        if self.radio_debug.GetValue():
+            debug_release = 'debug'
+        if self.radio_release.GetValue():
+            debug_release = 'release'
 
+        infor = '''
+[configuration]
+entry_symbol = "%s_library_init"
+compatibility_minimum = 4.6
+
+[libraries]
+
+windows.%s.x86_64 = "res://%s/%s.windows.template_debug.x86_64.dll"
+        ''' % (name, debug_release, self.gdext_input.GetValue().strip(), name)
+        with open(gdextesion_path, 'w', encoding='utf-8') as f:
+            f.write(infor)
         os.chdir(path)
-        cmd = "scons platform=windows"
+        cmd = "scons platform=windows target=%s" % (debug_release)
         subprocess.Popen(
             f'cmd /k {cmd} > "{self.cmdlog}" 2>&1',
             shell=True
