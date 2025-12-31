@@ -1,0 +1,15 @@
+#!/usr/bin/env python
+import os
+import sys
+
+env = SConscript("../godot_cpp_dir/godot-cpp/SConstruct")
+print(env)
+env.Append(CPPPATH=["src/"])
+sources = Glob("src/*.cpp")
+
+if env["platform"] == "windows":
+    library = env.SharedLibrary(
+        "bin/jbl_ext{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+        source=sources,
+    )
+Default(library)
