@@ -10,6 +10,7 @@ import time
 import json
 import urllib.request
 import zipfile
+from datetime import datetime
 
 REFRESH_INTERVAL_MS = 1000  # 树刷新频率
 
@@ -43,18 +44,21 @@ class MainFrame(wx.Frame):
         panel = wx.Panel(self)
         self.root_dir = ''
         self.ext_name = ''
-
-        if os.path.exists("cfg.ini") == False:
-            with open("cfg.ini", "w", encoding="utf-8") as f:
+        self.tool_root = os.getcwd()
+        self.cfg_ini = os.path.join(self.tool_root, 'cfg.ini')
+        self.cmd_dir = os.path.join(self.tool_root, 'cmd_output_dir')
+        self.cmdlogfile = ''
+        if not os.path.exists(self.cfg_ini):
+            with open(self.cfg_ini, 'w', encoding='utf-8') as f:
                 f.write("")
-        with open("cfg.ini", "r", encoding="utf-8") as f:
+        if not os.path.exists(self.cmd_dir):
+            os.makedirs(self.cmd_dir)
+
+        with open(self.cfg_ini, "r", encoding="utf-8") as f:
             a = f.read().split("\n")
             if len(a) >= 2:
                 self.root_dir = a[0]
                 self.ext_name = a[1]
-                self.cmdlog = os.path.join(self.root_dir, 'cmdlog.txt')
-                with open(self.cmdlog, "w", encoding="gbk") as f:
-                    f.write("")
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         self.locked = False
@@ -105,65 +109,90 @@ class MainFrame(wx.Frame):
         # ---------- 第三行：下载 godot-cpp ----------
         self.btn_download = wx.Button(panel, label="step1: 创建 godot_cpp_dir")
         self.btn_download.Bind(wx.EVT_BUTTON, self.on_create_godot_cpp)
-        left_sizer.Add(self.btn_download, 0, wx.EXPAND | wx.ALL, 6)
+        left_sizer.Add(self.btn_download, 0, wx.EXPAND | wx.ALL, 2)
 
         a = wx.StaticText(panel, label="step2: 请手动到https://github.com/godotengine/godot-cpp\n下载godot-cpp-master.zip，然后放到已创建的godot_cpp_dir目录下。\n应该能看到...godot_cpp_dir/godot-cpp-master.zip")
-        left_sizer.Add(a, 0, wx.EXPAND | wx.ALL, 6)
+        left_sizer.Add(a, 0, wx.EXPAND | wx.ALL, 2)
         # ---------- 第四行：编译 godot-cpp ----------
         self.btn_build_cpp = wx.Button(panel, label="step3: 编译 godot-cpp")
         self.btn_build_cpp.Bind(wx.EVT_BUTTON, self.on_build_godot_cpp)
-        left_sizer.Add(self.btn_build_cpp, 0, wx.EXPAND | wx.ALL, 6)
+        left_sizer.Add(self.btn_build_cpp, 0, wx.EXPAND | wx.ALL, 2)
 
         # ---------- 第五行：创建 GDExtension ----------
         self.btn_create_ext = wx.Button(panel, label="step4: 创建 GDExtension 文件")
         self.btn_create_ext.Bind(wx.EVT_BUTTON, self.on_create_extension)
-        left_sizer.Add(self.btn_create_ext, 0, wx.EXPAND | wx.ALL, 6)
+        left_sizer.Add(self.btn_create_ext, 0, wx.EXPAND | wx.ALL, 2)
 
+        # -----------第六行 增加函数 ---------------
+        self.btn_add_func = wx.Button(panel, label="step5 增加函数(可跳过，如果增加了函数后，需要重新编译GDExtension)")
+        self.btn_add_func.Bind(wx.EVT_BUTTON, self.on_add_func)
+        left_sizer.Add(self.btn_add_func, 0, wx.EXPAND | wx.ALL, 2)
+        # ========== 1. 构建控件 ==========
+        # 第一行：函数名 标签 + 单行输入框
+        self.label_func = wx.StaticText(panel, label="添加的函数名：")
+        self.input_func = wx.TextCtrl(panel, size=(300, -1))  # 单行输入框，宽度300
+        # 第二行：依赖的.h/.cpp 标签 + 多行输入框（支持换行，适配多文件输入）
+        self.label_dep = wx.StaticText(panel, label="依赖的.h/.cpp：")
+        self.input_dep = wx.TextCtrl(panel, size=(300, 60), style=wx.TE_MULTILINE)  # 多行输入框
+        # ========== 2. 布局管理（使用垂直BoxSizer实现两行排列） ==========
+        # 第一行布局（横向：标签 + 输入框）
+        row1_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        row1_sizer.Add(self.label_func, 0, wx.ALIGN_CENTER | wx.RIGHT | wx.TOP, 1)  # 上边距+右间距
+        row1_sizer.Add(self.input_func, 0, wx.ALIGN_CENTER | wx.TOP, 1)
+        # 第二行布局（横向：标签 + 输入框）
+        row2_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        row2_sizer.Add(self.label_dep, 0, wx.ALIGN_TOP | wx.RIGHT | wx.TOP, 1)  # 顶部对齐+上边距+右间距
+        row2_sizer.Add(self.input_dep, 0, wx.TOP, 1)
+        # 组装主布局
+        left_sizer.Add(row1_sizer, 0, wx.LEFT, 1)  # 左边距
+        left_sizer.Add(row2_sizer, 0, wx.LEFT, 1)  # 左边距
 
-
-        # ---------- 第六行：编译 GDExtension ----------
-        self.btn_build_ext = wx.Button(panel, label="step5: 编译 GDExtension")
+        # ---------- 第七行：编译 GDExtension ----------
+        self.btn_build_ext = wx.Button(panel, label="step6: 编译 GDExtension")
         self.btn_build_ext.Bind(wx.EVT_BUTTON, self.on_build_extension)
-        left_sizer.Add(self.btn_build_ext, 0, wx.EXPAND | wx.ALL, 6)
+        left_sizer.Add(self.btn_build_ext, 0, wx.EXPAND | wx.ALL, 2)
 
         # 1. 构建 target 单选框区域
         target_label = wx.StaticText(panel, label="target= ")
-        self.radio_debug = wx.RadioButton(panel, label="debug", style=wx.RB_GROUP)
-        self.radio_release = wx.RadioButton(panel, label="release")
+        self.radio_debug = wx.RadioButton(panel, label="template_debug", style=wx.RB_GROUP)
+        self.radio_release = wx.RadioButton(panel, label="template_release")
+        self.radio_editor = wx.RadioButton(panel, label="debug")
 
         # 2. 构建 godot_gdextension_folder 输入区域
         gdext_label = wx.StaticText(panel, label="godot_gdextension_folder: res://")
         self.gdext_input = wx.TextCtrl(panel, size=(200, -1), value='GDExtension')
 
         # 3. 布局管理（使用 BoxSizer 实现横向排列）
-        l6_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        l6_sizer = wx.BoxSizer(wx.VERTICAL)
 
         # target 区域的子布局
         target_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        target_sizer.Add(target_label, 0, wx.ALIGN_CENTER | wx.RIGHT, 5)
-        target_sizer.Add(self.radio_debug, 0, wx.ALIGN_CENTER | wx.RIGHT, 5)
-        target_sizer.Add(self.radio_release, 0, wx.ALIGN_CENTER | wx.RIGHT, 20)
+        target_sizer.Add(target_label, 0, wx.ALIGN_CENTER | wx.RIGHT, 1)
+        target_sizer.Add(self.radio_debug, 0, wx.ALIGN_CENTER | wx.RIGHT, 1)
+        target_sizer.Add(self.radio_release, 0, wx.ALIGN_CENTER | wx.RIGHT, 1)
+        target_sizer.Add(self.radio_editor, 0, wx.ALIGN_CENTER | wx.RIGHT, 20)
 
         # gdextension 区域的子布局
         gdext_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        gdext_sizer.Add(gdext_label, 0, wx.ALIGN_CENTER | wx.RIGHT, 5)
+        gdext_sizer.Add(gdext_label, 0, wx.ALIGN_CENTER | wx.RIGHT, 1)
         gdext_sizer.Add(self.gdext_input, 0, wx.ALIGN_CENTER)
 
         # 组装主布局
-        l6_sizer.Add(target_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 10)
-        l6_sizer.Add(gdext_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 10)
-        left_sizer.Add(l6_sizer, 0, wx.EXPAND | wx.ALL, 10)
+        l6_sizer.Add(target_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 1)
+        l6_sizer.Add(gdext_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 1)
+        left_sizer.Add(l6_sizer, 0, wx.EXPAND | wx.ALL, 1)
+
 
 
         # ---------- 目录树 ----------
         self.tree = wx.TreeCtrl(panel, style=wx.TR_HAS_BUTTONS | wx.TR_LINES_AT_ROOT)
-        right_sizer.Add(self.tree, 1, wx.EXPAND | wx.ALL, 6)
+        right_sizer.Add(self.tree, 1, wx.EXPAND | wx.ALL, 2)
 
 
 
         # ----------- cmd 窗口 ---------
         self.cmdwin = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY)
-        bt_sizer.Add(self.cmdwin, 1, wx.EXPAND | wx.ALL, 6)
+        bt_sizer.Add(self.cmdwin, 1, wx.EXPAND | wx.ALL, 2)
         threading.Thread(
             target=self.refresh_showwin,
             daemon=True
@@ -178,6 +207,9 @@ class MainFrame(wx.Frame):
     # =====================================================
     # 工具函数
     # =====================================================
+    def on_add_func(self, event):
+        pass
+
     def on_confirm(self, event):
         if not self.locked:
             root = self.root_ctrl.GetValue().strip()
@@ -190,10 +222,7 @@ class MainFrame(wx.Frame):
             if not os.path.exists(root):
                 wx.MessageBox("根目录不存在")
                 return
-            self.cmdlog = os.path.join(root, 'cmdlog.txt')
-            if not os.path.exists(self.cmdlog):
-                with open(self.cmdlog, 'w', encoding='gbk') as f:
-                    f.write('')
+
             # 锁定
             self.root_ctrl.Enable(False)
             self.ext_name_ctrl.Enable(False)
@@ -299,11 +328,17 @@ class MainFrame(wx.Frame):
             shutil.move(godot_cpp_master_path, at_last_godot_cpp)
 
         if os.path.exists(at_last_godot_cpp):
+            nowtime = datetime.now()
+            filename = nowtime.strftime("%Y%m%d%H%M%S")
+            self.cmdlogfile = os.path.join(self.cmd_dir, 'cmdlog_%s.txt' % filename)
+            if not os.path.exists(self.cmdlogfile):
+                with open(self.cmdlogfile, 'w', encoding='gbk') as f:
+                    f.write('')
             os.chdir(at_last_godot_cpp)
             cmdlist = ['scons platform=windows']
             for cmd in cmdlist:
                 subprocess.Popen(
-                    f'cmd /k {cmd} > "{self.cmdlog}" 2>&1',
+                    f'cmd /k {cmd} > "{self.cmdlogfile}" 2>&1',
                     shell=True
                 )
 
@@ -317,6 +352,15 @@ class MainFrame(wx.Frame):
         if not root or not name:
             wx.MessageBox("根目录或名称为空")
             return
+        # bin
+        bin_path = os.path.join(root, name, "bin")
+        if not os.path.exists(bin_path):
+            os.makedirs(bin_path)
+
+        # src
+        src_path = os.path.join(root, name, "src")
+        if not os.path.exists(src_path):
+            os.makedirs(src_path)
 
         #xxx.h
         jbl_ext_h = os.path.join('base', 'src', 'jbl_ext.h')
@@ -399,9 +443,11 @@ class MainFrame(wx.Frame):
         gdextesion_path = os.path.join(bin_path, '%s.gdextesion' % (name))
         debug_release = ''
         if self.radio_debug.GetValue():
-            debug_release = 'debug'
+            debug_release = 'template_debug'
         if self.radio_release.GetValue():
-            debug_release = 'release'
+            debug_release = 'template_release'
+        if self.radio_editor.GetValue():
+            debug_release = 'editor'
 
         infor = '''
 [configuration]
@@ -414,19 +460,54 @@ windows.%s.x86_64 = "res://%s/%s.windows.template_debug.x86_64.dll"
         ''' % (name, debug_release, self.gdext_input.GetValue().strip(), name)
         with open(gdextesion_path, 'w', encoding='utf-8') as f:
             f.write(infor)
+
+        nowtime = datetime.now()
+        filename = nowtime.strftime("%Y%m%d%H%M%S")
+        self.cmdlogfile = os.path.join(self.cmd_dir, 'cmdlog_%s.txt' % filename)
+        if not os.path.exists(self.cmdlogfile):
+            with open(self.cmdlogfile, 'w', encoding='gbk') as f:
+                f.write('')
+
         os.chdir(path)
         cmd = "scons platform=windows target=%s" % (debug_release)
-        subprocess.Popen(
-            f'cmd /k {cmd} > "{self.cmdlog}" 2>&1',
-            shell=True
+        with open(self.cmdlogfile, 'w', encoding='gbk') as f:
+            f.write('>>>>> start: %s' % (cmd))
+
+        proc = subprocess.Popen(
+            f'cmd /k {cmd} > "{self.cmdlogfile}" 2>&1',
+            shell=False
         )
+        print('just run %s' % (cmd))
+        self.wait_compile_finish(self.cmdlogfile, proc, 5)
+
+    def wait_compile_finish(self, cmdlog, proc, interval):
+        threading.Thread(
+            target=self.wait_compile_finish_thread,
+            daemon=True,
+            args=(cmdlog, proc, interval)
+        ).start()
+
+    def wait_compile_finish_thread(self, cmdlog, proc, interval):
+        try:
+            previous_size = os.path.getsize(cmdlog)
+            while True:
+                time.sleep(interval)
+                current_size = os.path.getsize(cmdlog)
+                if current_size == previous_size:
+                    proc.terminate()
+                    return True
+                print('before size :%s, current size :%s' % (previous_size, current_size))
+                previous_size = current_size
+        except:
+            import traceback
+            print(traceback.format_exc())
 
     # =====================================================
     # 目录树
     # =====================================================
     def refresh_tree(self, event):
         root_path = self.get_root()
-        with open('cfg.ini', 'w', encoding="utf-8") as f:
+        with open(self.cfg_ini, 'w', encoding="utf-8") as f:
             f.write('%s\n%s' % (root_path, self.get_ext_name()))
         if not root_path or not os.path.exists(root_path):
             self.tree.DeleteAllItems()
@@ -445,8 +526,8 @@ windows.%s.x86_64 = "res://%s/%s.windows.template_debug.x86_64.dll"
         last = 0
         while True:
             try:
-                if os.path.exists(self.cmdlog):
-                    with open(self.cmdlog, "r", encoding="gbk") as f:
+                if os.path.exists(self.cmdlogfile):
+                    with open(self.cmdlogfile, "r", encoding="gbk") as f:
                         f.seek(last)
                         data = f.read()
                         last = f.tell()
@@ -465,8 +546,10 @@ windows.%s.x86_64 = "res://%s/%s.windows.template_debug.x86_64.dll"
                 item = self.tree.AppendItem(parent, name)
                 if os.path.isdir(full):
                     self._add_tree_nodes(item, full)
-        except PermissionError:
-            pass
+        except:
+            import traceback
+            print(traceback.format_exc())
+
 
     def _add_tree_nodes_limited(self, parent, path, depth, max_depth):
         if depth >= max_depth:
@@ -485,8 +568,10 @@ windows.%s.x86_64 = "res://%s/%s.windows.template_debug.x86_64.dll"
                         depth + 1,
                         max_depth
                     )
-        except PermissionError:
-            pass
+        except:
+            import traceback
+            print(traceback.format_exc())
+
 
 if __name__ == "__main__":
     app = wx.App(False)

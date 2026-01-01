@@ -1,0 +1,9 @@
+scons: Reading SConscript files ...
+Auto-detected 16 CPU cores available for build parallelism. Using 15 cores by default. You can override it with the -j argument.
+Building for architecture x86_64 on platform windows
+<SCons.Script.SConscript.SConsEnvironment object at 0x000001E238091B90>
+scons: done reading SConscript files.
+scons: Building targets ...
+scons: `D:\make_game\godot_c_project\test_gdextension\godot_cpp_dir\godot-cpp\bin\libgodot-cpp.windows.template_debug.x86_64.lib' is up to date.
+scons: `bin\jbl_quick_ext.windows.template_debug.x86_64.dll' is up to date.
+scons: done building targets.
