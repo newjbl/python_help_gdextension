@@ -413,16 +413,7 @@ class MainFrame(wx.Frame):
                 f.write(content)
 
 
-        #SConstruct
-        sconstruct = os.path.join('base', 'SConstruct')
-        new_sconstruct = os.path.join(root, name, 'SConstruct')
-        if os.path.exists(sconstruct):
-            content = ''
-            with open(sconstruct, 'r', encoding='utf-8') as f:
-                content = f.read()
-            content = content.replace('jbl_ext', name)
-            with open(new_sconstruct, 'w', encoding='utf-8') as f:
-                f.write(content)
+
 
         #bin
         bin_path = os.path.join(root, name, 'bin')
@@ -443,26 +434,44 @@ class MainFrame(wx.Frame):
         if not os.path.exists(bin_path):
             os.mkdir(bin_path)
         name = self.get_ext_name()
-        gdextesion_path = os.path.join(bin_path, '%s.gdextesion' % (name))
+        gdextension_dir = self.gdext_input.GetValue().strip()
+        gdextesion_path = os.path.join(bin_path, gdextension_dir, '%s.gdextension' % (name))
+        template_debug_release = ''
         debug_release = ''
         if self.radio_debug.GetValue():
-            debug_release = 'template_debug'
+            template_debug_release = 'template_debug'
+            debug_release = 'debug'
         if self.radio_release.GetValue():
-            debug_release = 'template_release'
+            template_debug_release = 'template_release'
+            debug_release = 'release'
         if self.radio_editor.GetValue():
+            template_debug_release = 'editor'
             debug_release = 'editor'
+
 
         infor = '''
 [configuration]
 entry_symbol = "%s_library_init"
-compatibility_minimum = 4.6
+compatibility_minimum = "4.6"
 
 [libraries]
 
-windows.%s.x86_64 = "res://%s/%s.windows.template_debug.x86_64.dll"
-        ''' % (name, debug_release, self.gdext_input.GetValue().strip(), name)
+windows.%s.x86_64 = "res://%s/%s.windows.%s.x86_64.dll"
+        ''' % (name, debug_release, gdextension_dir, name, template_debug_release)
         with open(gdextesion_path, 'w', encoding='utf-8') as f:
             f.write(infor)
+
+        # SConstruct
+        sconstruct = os.path.join('base', 'SConstruct')
+        new_sconstruct = os.path.join(self.get_root(), name, 'SConstruct')
+        if os.path.exists(sconstruct):
+            content = ''
+            with open(sconstruct, 'r', encoding='utf-8') as f:
+                content = f.read()
+            content = content.replace('jbl_ext', name)
+            content = content.replace('jbl_gdextension_dir', gdextension_dir)
+            with open(new_sconstruct, 'w', encoding='utf-8') as f:
+                f.write(content)
 
         nowtime = datetime.now()
         filename = nowtime.strftime("%Y%m%d%H%M%S")
@@ -472,7 +481,7 @@ windows.%s.x86_64 = "res://%s/%s.windows.template_debug.x86_64.dll"
                 f.write('')
 
         os.chdir(path)
-        cmd = "scons platform=windows target=%s" % (debug_release)
+        cmd = "scons platform=windows target=%s" % (template_debug_release)
         with open(self.cmdlogfile, 'w', encoding='gbk') as f:
             f.write('>>>>> start: %s' % (cmd))
 
