@@ -48,6 +48,9 @@ class MainFrame(wx.Frame):
         self.cfg_ini = os.path.join(self.tool_root, 'cfg.ini')
         self.cmd_dir = os.path.join(self.tool_root, 'cmd_output_dir')
         self.cmdlogfile = ''
+        self.tree_dic = {}
+        self.need_refresh_tree = False
+
         if not os.path.exists(self.cfg_ini):
             with open(self.cfg_ini, 'w', encoding='utf-8') as f:
                 f.write("")
@@ -506,6 +509,7 @@ windows.%s.x86_64 = "res://%s/%s.windows.template_debug.x86_64.dll"
     # 目录树
     # =====================================================
     def refresh_tree(self, event):
+        self.need_refresh_tree = False
         root_path = self.get_root()
         with open(self.cfg_ini, 'w', encoding="utf-8") as f:
             f.write('%s\n%s' % (root_path, self.get_ext_name()))
@@ -513,14 +517,57 @@ windows.%s.x86_64 = "res://%s/%s.windows.template_debug.x86_64.dll"
             self.tree.DeleteAllItems()
             return
 
-        self.tree.Freeze()
-        self.tree.DeleteAllItems()
-        root_item = self.tree.AddRoot(root_path)
-        #self._add_tree_nodes(root_item, root_path)
-        self._add_tree_nodes_limited(root_item, root_path, depth=0, max_depth=2)
-        self.tree.Expand(root_item)
-        self.tree.ExpandAll()
-        self.tree.Thaw()
+        self.scan_files(root_path, 0, 4)
+        need_del_list = []
+        for p, infor in self.tree_dic.items():
+            if not os.path.exists(p):
+                need_del_list.append(p)
+                self.need_refresh_tree = True
+        for p in need_del_list:
+            del self.tree_dic[p]
+
+        need_collapse_list = []
+        if self.need_refresh_tree:
+            self.tree.Freeze()
+            self.tree.DeleteAllItems()
+            root_item = self.tree.AddRoot(root_path)
+            for p, infor in self.tree_dic.items():
+                parent = infor.get('parent', '')
+                name = infor.get('name', '')
+                parent_item = self.tree_dic.get(parent, {}).get('item', None)
+                if parent == root_path:
+                    parent_item = root_item
+                item = self.tree.AppendItem(parent_item, name)
+                self.tree_dic[p]['item'] = item
+                if os.path.basename(p) in ['tmp', 'godot-cpp']:
+                    need_collapse_list.append(p)
+
+            self.tree.ExpandAll()
+            for p in need_collapse_list:
+                if os.path.exists(p) and p in self.tree_dic:
+                    p_item = self.tree_dic[p].get('item', None)
+                    if p_item:
+                        self.tree.Collapse(p_item)
+            self.tree.Thaw()
+
+
+    def scan_files(self, root_path, current_depth, max_depth):
+        if current_depth > max_depth:
+            return
+
+        try:
+            for name in sorted(os.listdir(root_path)):
+                full_path = os.path.join(root_path, name)
+                obj = self.tree_dic.get(full_path, {})
+                if obj == {}:
+                    self.tree_dic.setdefault(full_path, {'parent': root_path, 'name': name})
+                    self.need_refresh_tree = True
+                if os.path.isdir(full_path):
+                    self.scan_files(full_path, current_depth + 1, max_depth)
+        except:
+            import traceback
+            print(traceback.format_exc())
+
 
     def refresh_showwin(self):
         last = 0
@@ -539,38 +586,6 @@ windows.%s.x86_64 = "res://%s/%s.windows.template_debug.x86_64.dll"
             time.sleep(0.5)
 
 
-    def _add_tree_nodes(self, parent, path):
-        try:
-            for name in sorted(os.listdir(path)):
-                full = os.path.join(path, name)
-                item = self.tree.AppendItem(parent, name)
-                if os.path.isdir(full):
-                    self._add_tree_nodes(item, full)
-        except:
-            import traceback
-            print(traceback.format_exc())
-
-
-    def _add_tree_nodes_limited(self, parent, path, depth, max_depth):
-        if depth >= max_depth:
-            return
-
-        try:
-            for name in sorted(os.listdir(path)):
-                full_path = os.path.join(path, name)
-                item = self.tree.AppendItem(parent, name)
-
-                # 只有在未超过深度时才继续
-                if os.path.isdir(full_path):
-                    self._add_tree_nodes_limited(
-                        item,
-                        full_path,
-                        depth + 1,
-                        max_depth
-                    )
-        except:
-            import traceback
-            print(traceback.format_exc())
 
 
 if __name__ == "__main__":
